@@ -104,11 +104,9 @@
 //! ```
 //!
 //! [RFC 2104]: https://tools.ietf.org/html/rfc2104
-//! [code for `ring::pbkdf2`]: [crate::pbkdf2]
-//! [code for `ring::hkdf`]: [crate::hkdf]
 
 use crate::{
-    constant_time, cpu,
+    bb, cpu,
     digest::{self, Digest, FinishError},
     error, hkdf, rand,
 };
@@ -250,7 +248,7 @@ impl Key {
         // If the key is shorter than one block then we're supposed to act like
         // it is padded with zero bytes up to the block length. `x ^ 0 == x` so
         // we can just leave the trailing bytes of `padded_key` untouched.
-        constant_time::xor_assign_at_start(&mut padded_key[..], key_value);
+        bb::xor_assign_at_start(&mut padded_key[..], key_value);
 
         let leftover = key.inner.update(padded_key, cpu_features);
         debug_assert_eq!(leftover.len(), 0);
@@ -259,7 +257,7 @@ impl Key {
 
         // Remove the `IPAD` masking, leaving the unmasked padded key, then
         // mask with `OPAD`, all in one step.
-        constant_time::xor_assign(&mut padded_key[..], IPAD ^ OPAD);
+        bb::xor_assign(&mut padded_key[..], IPAD ^ OPAD);
         let leftover = key.outer.update(padded_key, cpu_features);
         debug_assert_eq!(leftover.len(), 0);
 
@@ -282,7 +280,7 @@ impl Key {
         let computed = self
             .sign(data, cpu)
             .map_err(VerifyError::InputTooLongError)?;
-        constant_time::verify_slices_are_equal(computed.as_ref(), tag)
+        bb::verify_slices_are_equal(computed.as_ref(), tag)
             .map_err(|_: error::Unspecified| VerifyError::Mismatch)
     }
 }

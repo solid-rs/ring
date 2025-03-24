@@ -37,7 +37,7 @@ macro_rules! ecdh {
         /// [NIST Special Publication 800-56A, revision 2]:
         ///     http://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-56Ar2.pdf
         /// [Suite B Implementer's Guide to NIST SP 800-56A]:
-        ///     https://github.com/ctz/ring/blob/main/doc/ecdh.pdf
+        ///     https://github.com/briansmith/ring/blob/main/doc/ecdh.pdf
         pub static $NAME: agreement::Algorithm = agreement::Algorithm {
             curve: $curve,
             ecdh: $ecdh,
@@ -147,7 +147,8 @@ fn ecdh(
 #[cfg(test)]
 mod tests {
     use super::super::ops;
-    use crate::{agreement, ec, limb, test};
+    use crate::testutil as test;
+    use crate::{agreement, ec, limb};
 
     static SUPPORTED_SUITE_B_ALGS: [(&str, &agreement::Algorithm, &ec::Curve, &ops::CommonOps); 2] = [
         (

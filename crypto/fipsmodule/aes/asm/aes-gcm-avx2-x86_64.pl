@@ -435,41 +435,12 @@ sub _ghash_4x {
     return $code;
 }
 
-# void gcm_gmult_vpclmulqdq_avx2(uint8_t Xi[16], const u128 Htable[16]);
-$code .= _begin_func "gcm_gmult_vpclmulqdq_avx2", 1;
-{
-    my ( $GHASH_ACC_PTR, $HTABLE ) = @argregs[ 0 .. 1 ];
-    my ( $GHASH_ACC, $BSWAP_MASK, $H_POW1, $GFPOLY, $T0, $T1, $T2 ) =
-      map( "%xmm$_", ( 0 .. 6 ) );
-
-    $code .= <<___;
-    @{[ _save_xmmregs (6) ]}
-    .seh_endprologue
-
-    vmovdqu         ($GHASH_ACC_PTR), $GHASH_ACC
-    vmovdqu         .Lbswap_mask(%rip), $BSWAP_MASK
-    vmovdqu         $OFFSETOFEND_H_POWERS-16($HTABLE), $H_POW1
-    vmovdqu         .Lgfpoly(%rip), $GFPOLY
-    vpshufb         $BSWAP_MASK, $GHASH_ACC, $GHASH_ACC
-
-    @{[ _ghash_mul  $H_POW1, $GHASH_ACC, $GHASH_ACC, $GFPOLY, $T0, $T1, $T2 ]}
-
-    vpshufb         $BSWAP_MASK, $GHASH_ACC, $GHASH_ACC
-    vmovdqu         $GHASH_ACC, ($GHASH_ACC_PTR)
-___
-}
-$code .= _end_func;
-
 # void gcm_ghash_vpclmulqdq_avx2(uint8_t Xi[16], const u128 Htable[16],
 #                                const uint8_t *in, size_t len);
 #
 # Using the key |Htable|, update the GHASH accumulator |Xi| with the data given
-# by |in| and |len|.  |len| must be a multiple of 16.
-#
-# This function handles large amounts of AAD efficiently, while also keeping the
-# overhead low for small amounts of AAD which is the common case.  TLS uses less
-# than one block of AAD, but (uncommonly) other use cases may use much more.
-$code .= _begin_func "gcm_ghash_vpclmulqdq_avx2", 1;
+# by |in| and |len|.  |len| must be exactly 16.
+$code .= _begin_func "gcm_ghash_vpclmulqdq_avx2_1", 1;
 {
     # Function arguments
     my ( $GHASH_ACC_PTR, $HTABLE, $AAD, $AADLEN ) = @argregs[ 0 .. 3 ];
@@ -490,54 +461,19 @@ $code .= _begin_func "gcm_ghash_vpclmulqdq_avx2", 1;
     @{[ _save_xmmregs (6 .. 9) ]}
     .seh_endprologue
 
-    vbroadcasti128  .Lbswap_mask(%rip), $BSWAP_MASK
+    # Load the bswap_mask and gfpoly constants.  Since AADLEN is usually small,
+    # usually only 128-bit vectors will be used.  So as an optimization, don't
+    # broadcast these constants to both 128-bit lanes quite yet.
+    vmovdqu         .Lbswap_mask(%rip), $BSWAP_MASK_XMM
+    vmovdqu         .Lgfpoly(%rip), $GFPOLY_XMM
+
+    # Load the GHASH accumulator.
     vmovdqu         ($GHASH_ACC_PTR), $GHASH_ACC_XMM
     vpshufb         $BSWAP_MASK_XMM, $GHASH_ACC_XMM, $GHASH_ACC_XMM
-    vbroadcasti128  .Lgfpoly(%rip), $GFPOLY
 
-    # Optimize for AADLEN < 32 by checking for AADLEN < 32 before AADLEN < 128.
-    cmp             \$32, $AADLEN
-    jb              .Lghash_lastblock
-
-    cmp             \$127, $AADLEN
-    jbe             .Lghash_loop_1x
-
-    # Update GHASH with 128 bytes of AAD at a time.
-    vmovdqu         $OFFSETOF_H_POWERS_XORED($HTABLE), $H_POW2_XORED
-    vmovdqu         $OFFSETOF_H_POWERS_XORED+32($HTABLE), $H_POW1_XORED
-.Lghash_loop_4x:
-    @{[ _ghash_4x   $AAD, $HTABLE, $BSWAP_MASK, $H_POW2_XORED, $H_POW1_XORED,
-                    $TMP0, $TMP0_XMM, $TMP1, $TMP2, $LO, $MI, $GHASH_ACC,
-                    $GHASH_ACC_XMM ]}
-    sub             \$-128, $AAD  # 128 is 4 bytes, -128 is 1 byte
-    add             \$-128, $AADLEN
-    cmp             \$127, $AADLEN
-    ja              .Lghash_loop_4x
-
-    # Update GHASH with 32 bytes of AAD at a time.
-    cmp             \$32, $AADLEN
-    jb              .Lghash_loop_1x_done
-.Lghash_loop_1x:
-    vmovdqu         ($AAD), $TMP0
-    vpshufb         $BSWAP_MASK, $TMP0, $TMP0
-    vpxor           $TMP0, $GHASH_ACC, $GHASH_ACC
-    vmovdqu         $OFFSETOFEND_H_POWERS-32($HTABLE), $TMP0
-    @{[ _ghash_mul  $TMP0, $GHASH_ACC, $GHASH_ACC, $GFPOLY, $TMP1, $TMP2, $LO ]}
-    vextracti128    \$1, $GHASH_ACC, $TMP0_XMM
-    vpxor           $TMP0_XMM, $GHASH_ACC_XMM, $GHASH_ACC_XMM
-    add             \$32, $AAD
-    sub             \$32, $AADLEN
-    cmp             \$32, $AADLEN
-    jae             .Lghash_loop_1x
-.Lghash_loop_1x_done:
-    # Issue the vzeroupper that is needed after using ymm registers.  Do it here
-    # instead of at the end, to minimize overhead for small AADLEN.
-    vzeroupper
 
     # Update GHASH with the remaining 16-byte block if any.
 .Lghash_lastblock:
-    test            $AADLEN, $AADLEN
-    jz              .Lghash_done
     vmovdqu         ($AAD), $TMP0_XMM
     vpshufb         $BSWAP_MASK_XMM, $TMP0_XMM, $TMP0_XMM
     vpxor           $TMP0_XMM, $GHASH_ACC_XMM, $GHASH_ACC_XMM
@@ -549,6 +485,8 @@ $code .= _begin_func "gcm_ghash_vpclmulqdq_avx2", 1;
     # Store the updated GHASH accumulator back to memory.
     vpshufb         $BSWAP_MASK_XMM, $GHASH_ACC_XMM, $GHASH_ACC_XMM
     vmovdqu         $GHASH_ACC_XMM, ($GHASH_ACC_PTR)
+
+    vzeroupper
 ___
 }
 $code .= _end_func;
@@ -1028,6 +966,73 @@ $code .= _begin_func "aes_gcm_dec_update_vaes_avx2", 1;
 $code .= _aes_gcm_update 0;
 $code .= _end_func;
 
-print $code;
+sub filter_and_print {
+    # This function replaces AVX2 assembly instructions with their assembled forms,
+    # to allow the code to work on old versions of binutils (older than 2.30) that do
+    # not support these instructions.
+    my %asmMap = (
+        'vaesenc         %ymm2, %ymm12, %ymm12' => '.byte 0xc4,0x62,0x1d,0xdc,0xe2',
+        'vaesenc         %ymm2, %ymm13, %ymm13' => '.byte 0xc4,0x62,0x15,0xdc,0xea',
+        'vaesenc         %ymm2, %ymm14, %ymm14' => '.byte 0xc4,0x62,0x0d,0xdc,0xf2',
+        'vaesenc         %ymm2, %ymm15, %ymm15' => '.byte 0xc4,0x62,0x05,0xdc,0xfa',
+        'vaesenclast     %ymm10, %ymm12, %ymm12' => '.byte 0xc4,0x42,0x1d,0xdd,0xe2',
+        'vaesenclast     %ymm10, %ymm13, %ymm13' => '.byte 0xc4,0x42,0x15,0xdd,0xea',
+        'vaesenclast     %ymm2, %ymm12, %ymm12' => '.byte 0xc4,0x62,0x1d,0xdd,0xe2',
+        'vaesenclast     %ymm3, %ymm13, %ymm13' => '.byte 0xc4,0x62,0x15,0xdd,0xeb',
+        'vaesenclast     %ymm5, %ymm14, %ymm14' => '.byte 0xc4,0x62,0x0d,0xdd,0xf5',
+        'vaesenclast     %ymm6, %ymm15, %ymm15' => '.byte 0xc4,0x62,0x05,0xdd,0xfe',
+        'vpclmulqdq      $0x00, %ymm2, %ymm12, %ymm4' => '.byte 0xc4,0xe3,0x1d,0x44,0xe2,0x00',
+        'vpclmulqdq      $0x00, %ymm2, %ymm12, %ymm5' => '.byte 0xc4,0xe3,0x1d,0x44,0xea,0x00',
+        'vpclmulqdq      $0x00, %ymm3, %ymm13, %ymm4' => '.byte 0xc4,0xe3,0x15,0x44,0xe3,0x00',
+        'vpclmulqdq      $0x00, %ymm4, %ymm3, %ymm2' => '.byte 0xc4,0xe3,0x65,0x44,0xd4,0x00',
+        'vpclmulqdq      $0x00, %ymm4, %ymm3, %ymm5' => '.byte 0xc4,0xe3,0x65,0x44,0xec,0x00',
+        'vpclmulqdq      $0x00, %ymm5, %ymm3, %ymm0' => '.byte 0xc4,0xe3,0x65,0x44,0xc5,0x00',
+        'vpclmulqdq      $0x00, %ymm5, %ymm4, %ymm0' => '.byte 0xc4,0xe3,0x5d,0x44,0xc5,0x00',
+        'vpclmulqdq      $0x00, %ymm7, %ymm2, %ymm6' => '.byte 0xc4,0xe3,0x6d,0x44,0xf7,0x00',
+        'vpclmulqdq      $0x00, %ymm8, %ymm2, %ymm2' => '.byte 0xc4,0xc3,0x6d,0x44,0xd0,0x00',
+        'vpclmulqdq      $0x01, %ymm0, %ymm6, %ymm2' => '.byte 0xc4,0xe3,0x4d,0x44,0xd0,0x01',
+        'vpclmulqdq      $0x01, %ymm1, %ymm6, %ymm0' => '.byte 0xc4,0xe3,0x4d,0x44,0xc1,0x01',
+        'vpclmulqdq      $0x01, %ymm2, %ymm12, %ymm4' => '.byte 0xc4,0xe3,0x1d,0x44,0xe2,0x01',
+        'vpclmulqdq      $0x01, %ymm2, %ymm12, %ymm6' => '.byte 0xc4,0xe3,0x1d,0x44,0xf2,0x01',
+        'vpclmulqdq      $0x01, %ymm3, %ymm13, %ymm4' => '.byte 0xc4,0xe3,0x15,0x44,0xe3,0x01',
+        'vpclmulqdq      $0x01, %ymm5, %ymm2, %ymm3' => '.byte 0xc4,0xe3,0x6d,0x44,0xdd,0x01',
+        'vpclmulqdq      $0x01, %ymm5, %ymm3, %ymm1' => '.byte 0xc4,0xe3,0x65,0x44,0xcd,0x01',
+        'vpclmulqdq      $0x01, %ymm5, %ymm4, %ymm1' => '.byte 0xc4,0xe3,0x5d,0x44,0xcd,0x01',
+        'vpclmulqdq      $0x01, %ymm5, %ymm4, %ymm2' => '.byte 0xc4,0xe3,0x5d,0x44,0xd5,0x01',
+        'vpclmulqdq      $0x01, %ymm6, %ymm2, %ymm3' => '.byte 0xc4,0xe3,0x6d,0x44,0xde,0x01',
+        'vpclmulqdq      $0x01, %ymm6, %ymm4, %ymm2' => '.byte 0xc4,0xe3,0x5d,0x44,0xd6,0x01',
+        'vpclmulqdq      $0x10, %ymm2, %ymm12, %ymm4' => '.byte 0xc4,0xe3,0x1d,0x44,0xe2,0x10',
+        'vpclmulqdq      $0x10, %ymm3, %ymm13, %ymm4' => '.byte 0xc4,0xe3,0x15,0x44,0xe3,0x10',
+        'vpclmulqdq      $0x10, %ymm5, %ymm3, %ymm2' => '.byte 0xc4,0xe3,0x65,0x44,0xd5,0x10',
+        'vpclmulqdq      $0x10, %ymm5, %ymm4, %ymm2' => '.byte 0xc4,0xe3,0x5d,0x44,0xd5,0x10',
+        'vpclmulqdq      $0x10, %ymm7, %ymm2, %ymm2' => '.byte 0xc4,0xe3,0x6d,0x44,0xd7,0x10',
+        'vpclmulqdq      $0x10, %ymm8, %ymm2, %ymm2' => '.byte 0xc4,0xc3,0x6d,0x44,0xd0,0x10',
+        'vpclmulqdq      $0x11, %ymm2, %ymm12, %ymm4' => '.byte 0xc4,0xe3,0x1d,0x44,0xe2,0x11',
+        'vpclmulqdq      $0x11, %ymm2, %ymm12, %ymm7' => '.byte 0xc4,0xe3,0x1d,0x44,0xfa,0x11',
+        'vpclmulqdq      $0x11, %ymm3, %ymm13, %ymm4' => '.byte 0xc4,0xe3,0x15,0x44,0xe3,0x11',
+        'vpclmulqdq      $0x11, %ymm4, %ymm3, %ymm1' => '.byte 0xc4,0xe3,0x65,0x44,0xcc,0x11',
+        'vpclmulqdq      $0x11, %ymm4, %ymm3, %ymm2' => '.byte 0xc4,0xe3,0x65,0x44,0xd4,0x11',
+        'vpclmulqdq      $0x11, %ymm5, %ymm3, %ymm4' => '.byte 0xc4,0xe3,0x65,0x44,0xe5,0x11',
+        'vpclmulqdq      $0x11, %ymm5, %ymm4, %ymm3' => '.byte 0xc4,0xe3,0x5d,0x44,0xdd,0x11',
+    );
+    for my $line (split("\n",$code)) {
+        my $trimmed;
+        $trimmed = $line;
+        $trimmed =~ s/^\s+//;
+        $trimmed =~ s/\s+(#.*)?$//;
+        if (exists $asmMap{$trimmed}) {
+            $line = $asmMap{$trimmed};
+        } else {
+            if($trimmed =~ /(vpclmulqdq|vaes).*%[yz]mm/) {
+                die ("found instruction not supported under old binutils, please update asmMap with the results of running\n" .
+                     'find target -name "*aes-gcm-avx2*.o" -exec python3 crypto/fipsmodule/aes/asm/make-avx-map-for-old-binutils.py \{\} \; | LC_ALL=C sort | uniq');
+            }
+        }
+        print $line,"\n";
+    }
+}
+
+filter_and_print();
+
 close STDOUT or die "error closing STDOUT: $!";
 exit 0;
