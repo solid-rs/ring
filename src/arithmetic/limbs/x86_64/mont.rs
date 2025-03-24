@@ -14,7 +14,7 @@
 
 #![cfg(target_arch = "x86_64")]
 
-use super::{
+use super::super::super::{
     inout::{AliasingSlices2, AliasingSlices3},
     n0::N0,
     LimbSliceError, MAX_LIMBS,
@@ -31,7 +31,7 @@ use core::num::NonZeroUsize;
 const _512_IS_LIMB_BITS_TIMES_8: () = assert!(8 * Limb::BITS == 512);
 
 #[inline]
-pub(super) fn mul_mont5(
+pub(in super::super::super) fn mul_mont5(
     mut r: AsChunksMut<Limb, 8>,
     a: AsChunks<Limb, 8>,
     b: AsChunks<Limb, 8>,
@@ -50,7 +50,7 @@ pub(super) fn mul_mont5(
 pub const MIN_4X: usize = 8;
 
 #[inline]
-pub(super) fn mul_mont5_4x(
+pub(in super::super::super) fn mul_mont5_4x(
     in_out: impl AliasingSlices3<Limb>,
     n: AsChunks<Limb, 4>,
     n0: &N0,
@@ -70,7 +70,7 @@ pub(super) fn mul_mont5_4x(
 }
 
 #[inline]
-pub(super) fn sqr_mont5(
+pub(in super::super::super) fn sqr_mont5(
     mut in_out: AsChunksMut<Limb, 8>,
     n: AsChunks<Limb, 8>,
     n0: &N0,
@@ -113,7 +113,7 @@ pub(super) fn sqr_mont5(
 }
 
 #[inline(always)]
-pub(super) fn scatter5(
+pub(in super::super::super) fn scatter5(
     a: AsChunks<Limb, 8>,
     mut table: AsChunksMut<Limb, 8>,
     power: LeakyWindow,
@@ -138,7 +138,7 @@ pub(super) fn scatter5(
 
 // SAFETY: `power` must be less than 32.
 #[inline(always)]
-pub(super) unsafe fn gather5(
+pub(in super::super::super) unsafe fn gather5(
     mut r: AsChunksMut<Limb, 8>,
     table: AsChunks<Limb, 8>,
     power: Window,
@@ -146,7 +146,7 @@ pub(super) unsafe fn gather5(
     prefixed_extern! {
         // Upstream uses `num: c::size_t` too, and `power: c::size_t`; see
         // `_MAX_LIMBS_ADDRESSES_MEMORY_SAFETY_ISSUES`.
-        pub(super) fn bn_gather5(
+        fn bn_gather5(
             out: *mut Limb,
             num: c::NonZero_size_t,
             table: *const Limb,
@@ -163,7 +163,7 @@ pub(super) unsafe fn gather5(
 
 // SAFETY: `power` must be less than 32.
 #[inline(always)]
-pub(super) unsafe fn mul_mont_gather5_amm(
+pub(in super::super::super) unsafe fn mul_mont_gather5_amm(
     mut r: AsChunksMut<Limb, 8>,
     a: AsChunks<Limb, 8>,
     table: AsChunks<Limb, 8>,
@@ -173,9 +173,9 @@ pub(super) unsafe fn mul_mont_gather5_amm(
     maybe_adx_bmi1_bmi2: Option<(Adx, Bmi1, Bmi2)>,
 ) -> Result<(), LimbSliceError> {
     prefixed_extern! {
-        // Upstream has `num: c::int` and `power: c::int`; see
+        // Upstream has `num: c_int` and `power: c_int`; see
         // `_MAX_LIMBS_ADDRESSES_MEMORY_SAFETY_ISSUES`.
-        pub(super) fn bn_mul4x_mont_gather5(
+        fn bn_mul4x_mont_gather5(
             rp: *mut Limb,
             ap: *const Limb,
             table: *const Limb,
@@ -184,9 +184,9 @@ pub(super) unsafe fn mul_mont_gather5_amm(
             num: c::NonZero_size_t,
             power: Window,
         );
-        // Upstream has `num: c::int` and `power: c::int`; see
+        // Upstream has `num: c_int` and `power: c_int`; see
         // `_MAX_LIMBS_ADDRESSES_MEMORY_SAFETY_ISSUES`.
-        pub(super) fn bn_mulx4x_mont_gather5(
+        fn bn_mulx4x_mont_gather5(
             rp: *mut Limb,
             ap: *const Limb,
             table: *const Limb,
@@ -220,7 +220,7 @@ pub(super) unsafe fn mul_mont_gather5_amm(
 
 // SAFETY: `power` must be less than 32.
 #[inline(always)]
-pub(super) unsafe fn power5_amm(
+pub(in super::super::super) unsafe fn power5_amm(
     mut in_out: AsChunksMut<Limb, 8>,
     table: AsChunks<Limb, 8>,
     n: AsChunks<Limb, 8>,
@@ -229,7 +229,7 @@ pub(super) unsafe fn power5_amm(
     maybe_adx_bmi1_bmi2: Option<(Adx, Bmi1, Bmi2)>,
 ) -> Result<(), LimbSliceError> {
     prefixed_extern! {
-        // Upstream has `num: c::int` and `power: c::int`; see
+        // Upstream has `num: c_int` and `power: c_int`; see
         // `_MAX_LIMBS_ADDRESSES_MEMORY_SAFETY_ISSUES`.
         fn bn_power5_nohw(
             rp: *mut Limb,
@@ -240,7 +240,7 @@ pub(super) unsafe fn power5_amm(
             num: c::NonZero_size_t,
             power: Window,
         );
-        // Upstream has `num: c::int` and `power: c::int`; see
+        // Upstream has `num: c_int` and `power: c_int`; see
         // `_MAX_LIMBS_ADDRESSES_MEMORY_SAFETY_ISSUES`.
         fn bn_powerx5(
             rp: *mut Limb,

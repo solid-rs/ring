@@ -6,21 +6,22 @@ edition = "2021"
 keywords = ["crypto", "cryptography", "rand", "ECC", "RSA"]
 license = "Apache-2.0 AND ISC"
 name = "ring"
-repository = "https://github.com/ctz/ring"
+repository = "https://github.com/briansmith/ring"
 
 # Keep in sync with .github/workflows/ci.yml ("MSRV") and see the MSRV note
-# in cpu/arm.rs
-rust-version = "1.63.0"
+# in cpu/arm.rs.
+# 1.66 is required on x86/x86_64 for https://github.com/rust-lang/rust/pull/101861.
+rust-version = "1.66.0"
 
 # Keep in sync with `links` below.
-version = "0.17.11"
+version = "0.17.14"
 
 # Keep in sync with `version` above.
 #
 # build.rs verifies that this equals "ring_core_{major}_{minor}_{patch}_{pre}"
 # as keeping this in sync with the symbol prefixing is crucial for ensuring
 # the safety of multiple versions of *ring* being used in a program.
-links = "ring_core_0_17_11_"
+links = "ring_core_0_17_14_"
 
 include = [
     "LICENSE",
@@ -49,6 +50,7 @@ include = [
     "crypto/curve25519/curve25519_tables.h",
     "crypto/curve25519/internal.h",
     "crypto/fipsmodule/aes/aes_nohw.c",
+    "crypto/fipsmodule/aes/asm/aes-gcm-avx2-x86_64.pl",
     "crypto/fipsmodule/aes/asm/aesni-x86.pl",
     "crypto/fipsmodule/aes/asm/aesni-gcm-x86_64.pl",
     "crypto/fipsmodule/aes/asm/aesni-x86_64.pl",

@@ -14,7 +14,9 @@
 
 #![allow(missing_docs)]
 
-use ring::{aead::quic, test, test_file};
+use ring::aead::quic;
+#[allow(deprecated)]
+use ring::{test, test_file};
 
 #[test]
 fn quic_aes_128() {
@@ -32,6 +34,7 @@ fn quic_chacha20() {
 }
 
 fn test_quic(alg: &'static quic::Algorithm, test_file: test::File) {
+    test_key_len(alg);
     test_sample_len(alg);
 
     test::run(test_file, |section, test_case| {
@@ -49,13 +52,25 @@ fn test_quic(alg: &'static quic::Algorithm, test_file: test::File) {
 }
 
 #[allow(clippy::range_plus_one)]
+fn test_key_len(alg: &'static quic::Algorithm) {
+    let key_len = alg.key_len();
+    let key_data = vec![0u8; key_len + 1];
+
+    assert!(quic::HeaderProtectionKey::new(alg, &[]).is_err());
+    assert!(quic::HeaderProtectionKey::new(alg, &key_data[..key_len]).is_ok());
+    assert!(quic::HeaderProtectionKey::new(alg, &key_data[..(key_len + 1)]).is_err());
+    assert!(quic::HeaderProtectionKey::new(alg, &key_data[..(key_len - 1)]).is_err());
+}
+
+#[allow(clippy::range_plus_one)]
 fn test_sample_len(alg: &'static quic::Algorithm) {
     let key_len = alg.key_len();
     let key_data = vec![0u8; key_len];
 
     let key = quic::HeaderProtectionKey::new(alg, &key_data).unwrap();
 
-    let sample_len = 16;
+    let sample_len = alg.sample_len();
+    assert_eq!(sample_len, 16); // For all currently-implemented algorithms
     let sample_data = vec![0u8; sample_len + 2];
 
     // Sample is the right size.

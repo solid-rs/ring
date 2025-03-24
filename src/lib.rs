@@ -12,9 +12,6 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-//! Safe, fast, small crypto using Rust with BoringSSL's cryptography
-//! primitives.
-//!
 //! # Feature Flags
 //!
 //! <table>
@@ -103,8 +100,9 @@ mod debug;
 #[macro_use]
 mod prefixed;
 
+#[doc(hidden)]
 #[macro_use]
-pub mod test;
+mod testutil;
 
 #[macro_use]
 mod bssl;
@@ -118,8 +116,21 @@ pub mod agreement;
 mod arithmetic;
 mod bits;
 
+pub(crate) mod bb;
 pub(crate) mod c;
-pub mod constant_time;
+
+#[doc(hidden)]
+#[deprecated(
+    note = "Will be removed. Internal module not intended for external use, with no promises regarding side channels."
+)]
+pub mod deprecated_constant_time;
+
+#[doc(hidden)]
+#[allow(deprecated)]
+#[deprecated(
+    note = "Will be removed. Internal module not intended for external use, with no promises regarding side channels."
+)]
+pub use deprecated_constant_time as constant_time;
 
 pub mod io;
 
@@ -157,3 +168,10 @@ mod sealed {
     // ```
     pub trait Sealed {}
 }
+
+#[deprecated(note = "internal API that will be removed")]
+pub mod deprecated_test;
+
+#[allow(deprecated)]
+#[deprecated(note = "internal API that will be removed")]
+pub use deprecated_test as test;
